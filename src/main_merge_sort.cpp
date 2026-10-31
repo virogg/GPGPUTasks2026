@@ -97,9 +97,12 @@ void run(int argc, char** argv)
         timer t;
 
         // Запускаем кернел, с указанием размера рабочего пространства и передачей всех аргументов
-        const gpu::gpu_mem_32u* src = &input_gpu;
+        gpu::gpu_mem_32u* first = n <= BLOCK_SORT_SIZE ? &buffer_output_gpu : &buffer1_gpu;
+        cuda::block_sort(input_gpu, *first, n);
+
+        const gpu::gpu_mem_32u* src = first;
         const int V = MERGE_VALUES_PER_THREAD;
-        for (int k = 1; k < n; k *= 2) {
+        for (int k = BLOCK_SORT_SIZE; k < n; k *= 2) {
             const int span = 2 * k;
 
             gpu::gpu_mem_32u* dst;

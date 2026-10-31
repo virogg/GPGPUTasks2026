@@ -29,6 +29,70 @@ __device__ int merge_path(
     return low;
 }
 
+__global__ void block_sort(
+    const unsigned int* input_data,
+    unsigned int* output_data, int n)
+{
+    __shared__ unsigned int shared0[BLOCK_SORT_SIZE];
+    __shared__ unsigned int shared1[BLOCK_SORT_SIZE];
+
+    const int tile_base = blockIdx.x * BLOCK_SORT_SIZE;
+    const int cnt = min(BLOCK_SORT_SIZE, n - tile_base);
+    const int tid = threadIdx.x;
+    const int V = MERGE_VALUES_PER_THREAD;
+
+    unsigned int* src = shared0;
+    unsigned int* dst = shared1;
+
+    #pragma unroll
+    for (int j = tid; j < cnt; j += blockDim.x)
+        src[j] = input_data[tile_base + j];
+
+    __syncthreads();
+
+    for (int k = 1; k < cnt; k <<= 1) {
+        const int k2 = 2 * k;
+        const int q = (k2 + V - 1) / V;
+        const int pairs = (cnt + k2 - 1) / k2;
+
+        for (int task = tid; task < pairs * q; task += blockDim.x) {
+            const int base = (task / q) * k2;
+            const int mid = min(base + k, cnt);
+            const int end = min(base + k2, cnt);
+
+            const int d0 = (task % q) * V;
+            if (d0 >= end - base)
+                continue;
+
+            const int d1 = min(d0 + V, end - base);
+
+            const unsigned int* A = src + base;
+            const unsigned int* B = src + mid;
+            const int na = mid - base;
+            const int nb = end - mid;
+
+            int a = merge_path(A, na, B, nb, d0);
+            int b = d0 - a;
+
+            for (int d = d0; d < d1; ++d) {
+                if (b == nb || (a < na && A[a] <= B[b])) {
+                    dst[base + d] = A[a++];
+                } else {
+                    dst[base + d] = B[b++];
+                }
+            }
+        }
+
+        __syncthreads();
+        unsigned int* tmp = src;
+        src = dst;
+        dst = tmp;
+    }
+
+    for (int j = tid; j < cnt; j += blockDim.x)
+        output_data[tile_base + j] = src[j];
+}
+
 __global__ void merge_sort(
     const unsigned int* input_data,
           unsigned int* output_data,
@@ -82,6 +146,17 @@ void merge_sort(const gpu::WorkSize &workSize,
     rassert(context.type() == gpu::Context::TypeCUDA, 34523543124312, context.type());
     cudaStream_t stream = context.cudaStream();
     ::merge_sort<<<workSize.cuGridSize(), workSize.cuBlockSize(), 0, stream>>>(input_data.cuptr(), output_data.cuptr(), sorted_k, n);
+    CUDA_CHECK_KERNEL(stream);
+}
+
+void block_sort(const gpu::gpu_mem_32u& input_data,
+                gpu::gpu_mem_32u& output_data, int n)
+{
+    gpu::Context context;
+    rassert(context.type() == gpu::Context::TypeCUDA, 34523543124312, context.type());
+    cudaStream_t stream = context.cudaStream();
+    const int blocks = (n + BLOCK_SORT_SIZE - 1) / BLOCK_SORT_SIZE;
+    ::block_sort<<<blocks, GROUP_SIZE, 0, stream>>>(input_data.cuptr(), output_data.cuptr(), n);
     CUDA_CHECK_KERNEL(stream);
 }
 } // namespace cuda

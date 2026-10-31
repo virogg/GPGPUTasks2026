@@ -6,6 +6,7 @@
 #define GROUP_SIZE_Y 16
 
 #define MERGE_VALUES_PER_THREAD 4
+#define BLOCK_SORT_SIZE 1024
 
 #define RASSERT_ENABLED 0 // disabled by default, enable for debug by changing 0 to 1, disable before performance evaluation/profiling/commiting
 
